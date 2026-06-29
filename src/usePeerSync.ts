@@ -21,34 +21,28 @@ const CONNECT_TIMEOUT_MS = 12000
 
 const LOG = '[peer]'
 
-// ICE servers for NAT traversal. STUN discovers a peer's public address; TURN
-// relays traffic when no direct path can be found — which includes restrictive
-// networks AND same-machine setups where browsers hide host candidates behind
-// mDNS. The TURN relay (incl. TCP/443) is what makes the negotiation actually
-// succeed when ICE would otherwise fail.
-const PEER_OPTIONS = {
-  config: {
-    iceServers: [
-      { urls: 'stun:stun.l.google.com:19302' },
-      { urls: 'stun:stun1.l.google.com:19302' },
-      {
-        urls: 'turn:openrelay.metered.ca:80',
-        username: 'openrelayproject',
-        credential: 'openrelayproject',
-      },
-      {
-        urls: 'turn:openrelay.metered.ca:443',
-        username: 'openrelayproject',
-        credential: 'openrelayproject',
-      },
-      {
-        urls: 'turn:openrelay.metered.ca:443?transport=tcp',
-        username: 'openrelayproject',
-        credential: 'openrelayproject',
-      },
-    ],
-  },
+// ICE servers for NAT traversal. STUN lets peers discover their public address
+// and is enough for most direct connections (especially across two different
+// devices). A TURN relay is only needed when no direct path exists — restrictive
+// networks, or same-machine setups where browsers hide host candidates behind
+// mDNS. There is no reliable free public TURN, so it's opt-in via env vars; set
+// VITE_TURN_URL (+ optional VITE_TURN_USERNAME / VITE_TURN_CREDENTIAL) to add one.
+// Keep the list short: browsers warn that 5+ ICE servers slow down discovery.
+const iceServers: RTCIceServer[] = [
+  { urls: 'stun:stun.l.google.com:19302' },
+  { urls: 'stun:stun1.l.google.com:19302' },
+]
+
+const turnUrl: string | undefined = import.meta.env.VITE_TURN_URL
+if (turnUrl) {
+  iceServers.push({
+    urls: turnUrl,
+    username: import.meta.env.VITE_TURN_USERNAME,
+    credential: import.meta.env.VITE_TURN_CREDENTIAL,
+  })
 }
+
+const PEER_OPTIONS = { config: { iceServers } }
 
 function randomCode() {
   let code = ''
