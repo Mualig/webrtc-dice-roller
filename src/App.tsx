@@ -1,0 +1,450 @@
+import { useEffect, useRef, useState } from 'react'
+import { usePeerSync } from './usePeerSync'
+
+type DiceColor = 'white' | 'red' | 'yellow' | 'green' | 'blue'
+
+type Die = {
+  id: string
+  color: DiceColor
+  value: number
+}
+
+type RollEntry = {
+  id: number
+  dice: Die[]
+}
+
+// Messages exchanged between peers over the data channel.
+type Message =
+  | { type: 'roll' } // client -> host: please roll
+  | { type: 'clear' } // client -> host: please clear history
+  | { type: 'rolling' } // host -> clients: a roll started (animate)
+  | { type: 'state'; dice: Die[]; history: RollEntry[] } // host -> clients: authoritative state
+
+const DICE: { id: string; color: DiceColor }[] = [
+  { id: 'white-1', color: 'white' },
+  { id: 'white-2', color: 'white' },
+  { id: 'red', color: 'red' },
+  { id: 'yellow', color: 'yellow' },
+  { id: 'green', color: 'green' },
+  { id: 'blue', color: 'blue' },
+]
+
+const COLOR_STYLES: Record<
+  DiceColor,
+  { face: string; pip: string; text: string }
+> = {
+  white: { face: 'bg-white border border-zinc-300', pip: 'bg-zinc-800', text: 'text-zinc-800' },
+  red: { face: 'bg-red-500', pip: 'bg-white', text: 'text-white' },
+  yellow: { face: 'bg-yellow-400', pip: 'bg-white', text: 'text-white' },
+  green: { face: 'bg-green-600', pip: 'bg-white', text: 'text-white' },
+  blue: { face: 'bg-blue-600', pip: 'bg-white', text: 'text-white' },
+}
+
+// Which of the 9 grid cells are filled for each die value (1-6).
+const PIP_LAYOUT: Record<number, number[]> = {
+  1: [4],
+  2: [0, 8],
+  3: [0, 4, 8],
+  4: [0, 2, 6, 8],
+  5: [0, 2, 4, 6, 8],
+  6: [0, 2, 3, 5, 6, 8],
+}
+
+function rollValue() {
+  return Math.floor(Math.random() * 6) + 1
+}
+
+function Dice({ die, rolling }: Readonly<{ die: Die; rolling: boolean }>) {
+  const styles = COLOR_STYLES[die.color]
+  return (
+    <div className="flex flex-col items-center gap-2">
+      <div
+        className={`grid h-20 w-20 grid-cols-3 grid-rows-3 gap-1 rounded-2xl p-2.5 shadow-lg transition-transform ${
+          styles.face
+        } ${rolling ? 'animate-spin' : ''}`}
+      >
+        {Array.from({ length: 9 }, (_, cell) => (
+          <div key={cell} className="flex items-center justify-center">
+            {PIP_LAYOUT[die.value].includes(cell) && (
+              <span className={`h-3 w-3 rounded-full ${styles.pip}`} />
+            )}
+          </div>
+        ))}
+      </div>
+      <span className="text-sm font-medium capitalize text-zinc-500">
+        {die.color}
+      </span>
+    </div>
+  )
+}
+
+function HistoryEntry({ entry, label }: Readonly<{ entry: RollEntry; label: number }>) {
+  return (
+    <li className="flex items-center gap-3 rounded-lg bg-zinc-50 px-3 py-2">
+      <span className="w-8 shrink-0 text-sm font-medium text-zinc-400">
+        #{label}
+      </span>
+      <div className="flex flex-1 flex-wrap gap-1.5">
+        {entry.dice.map((die) => {
+          const styles = COLOR_STYLES[die.color]
+          return (
+            <span
+              key={die.id}
+              className={`flex h-7 w-7 items-center justify-center rounded-md text-sm font-bold ${styles.face} ${styles.text}`}
+            >
+              {die.value}
+            </span>
+          )
+        })}
+      </div>
+    </li>
+  )
+}
+
+function ConnectionPanel({
+  role,
+  status,
+  roomCode,
+  peerCount,
+  error,
+  shareLink,
+  copied,
+  onCreate,
+  onJoin,
+  onLeave,
+  onCopy,
+}: Readonly<{
+  role: ReturnType<typeof usePeerSync>['role']
+  status: ReturnType<typeof usePeerSync>['status']
+  roomCode: string | null
+  peerCount: number
+  error: string | null
+  shareLink: string
+  copied: boolean
+  onCreate: () => void
+  onJoin: (code: string) => void
+  onLeave: () => void
+  onCopy: () => void
+}>) {
+  const [codeInput, setCodeInput] = useState('')
+
+  if (status === 'connecting') {
+    return (
+      <div className="rounded-xl border border-zinc-200 bg-white p-4 text-center">
+        <p className="text-sm text-zinc-600">
+          {role === 'host' ? 'Creating room…' : 'Connecting to room…'}
+        </p>
+        <button
+          type="button"
+          onClick={onLeave}
+          className="mt-2 text-sm font-medium text-zinc-500 transition hover:text-zinc-900"
+        >
+          Cancel
+        </button>
+      </div>
+    )
+  }
+
+  if (status === 'connected' && role === 'host') {
+    return (
+      <div className="rounded-xl border border-zinc-200 bg-white p-4">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wide text-zinc-400">
+              Room code
+            </p>
+            <p className="font-mono text-2xl font-bold tracking-widest text-zinc-900">
+              {roomCode}
+            </p>
+          </div>
+          <span className="flex items-center gap-1.5 text-sm text-zinc-500">
+            <span className="h-2 w-2 rounded-full bg-green-500" />
+            {peerCount === 0
+              ? 'Waiting for players'
+              : `${peerCount} ${peerCount === 1 ? 'player' : 'players'} joined`}
+          </span>
+        </div>
+        <div className="mt-3 flex gap-2">
+          <button
+            type="button"
+            onClick={onCopy}
+            className="flex-1 rounded-lg bg-zinc-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-700"
+          >
+            {copied ? 'Link copied!' : 'Copy invite link'}
+          </button>
+          <button
+            type="button"
+            onClick={onLeave}
+            className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-600 transition hover:bg-zinc-100"
+          >
+            Leave
+          </button>
+        </div>
+        <p className="mt-2 truncate text-xs text-zinc-400">{shareLink}</p>
+      </div>
+    )
+  }
+
+  if (status === 'connected' && role === 'client') {
+    return (
+      <div className="flex items-center justify-between rounded-xl border border-zinc-200 bg-white p-4">
+        <span className="flex items-center gap-2 text-sm text-zinc-600">
+          <span className="h-2 w-2 rounded-full bg-green-500" />
+          Connected to room{' '}
+          <span className="font-mono font-bold tracking-widest text-zinc-900">
+            {roomCode}
+          </span>
+        </span>
+        <button
+          type="button"
+          onClick={onLeave}
+          className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-600 transition hover:bg-zinc-100"
+        >
+          Leave
+        </button>
+      </div>
+    )
+  }
+
+  // Solo / idle / error: the lobby.
+  return (
+    <div className="rounded-xl border border-zinc-200 bg-white p-4">
+      <p className="text-sm font-semibold text-zinc-900">Play together</p>
+      <p className="mt-0.5 text-sm text-zinc-500">
+        Share live rolls with friends over a direct peer-to-peer connection.
+      </p>
+      <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center">
+        <button
+          type="button"
+          onClick={onCreate}
+          className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-700"
+        >
+          Create room
+        </button>
+        <span className="text-center text-xs uppercase text-zinc-400">or</span>
+        <form
+          className="flex flex-1 gap-2"
+          onSubmit={(e) => {
+            e.preventDefault()
+            onJoin(codeInput)
+          }}
+        >
+          <input
+            value={codeInput}
+            onChange={(e) => setCodeInput(e.target.value.toUpperCase())}
+            placeholder="Room code"
+            maxLength={4}
+            className="w-full rounded-lg border border-zinc-300 px-3 py-2 font-mono text-sm tracking-widest uppercase outline-none focus:border-zinc-900"
+          />
+          <button
+            type="submit"
+            className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100"
+          >
+            Join
+          </button>
+        </form>
+      </div>
+      {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+    </div>
+  )
+}
+
+function App() {
+  const [dice, setDice] = useState<Die[]>(() =>
+    DICE.map((d) => ({ ...d, value: rollValue() })),
+  )
+  const [history, setHistory] = useState<RollEntry[]>([])
+  const [rolling, setRolling] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const nextId = useRef(1)
+
+  // Refs mirror the latest dice/history so PeerJS event handlers and the
+  // delayed roll callback read current values instead of stale closures.
+  const diceRef = useRef(dice)
+  const historyRef = useRef(history)
+
+  // Indirection so the (long-lived) hook always calls our current handlers,
+  // which need `role`/`send` returned by the hook itself.
+  const messageHandlerRef = useRef<(msg: unknown) => void>(() => {})
+  const clientJoinHandlerRef = useRef<() => void>(() => {})
+
+  const { role, status, roomCode, peerCount, error, createRoom, joinRoom, leave, send } =
+    usePeerSync({
+      onMessage: (msg) => messageHandlerRef.current(msg),
+      onClientJoin: () => clientJoinHandlerRef.current(),
+    })
+
+  function applyState(nextDice: Die[], nextHistory: RollEntry[]) {
+    diceRef.current = nextDice
+    historyRef.current = nextHistory
+    setDice(nextDice)
+    setHistory(nextHistory)
+  }
+
+  // Generate a roll locally and (if hosting) broadcast it. Only ever runs on
+  // the authoritative peer — solo or host.
+  function performRoll() {
+    setRolling(true)
+    if (role === 'host') send({ type: 'rolling' } satisfies Message)
+    setTimeout(() => {
+      const rolled = DICE.map((d) => ({ ...d, value: rollValue() }))
+      const nextHistory: RollEntry[] = [
+        { id: nextId.current++, dice: rolled },
+        ...historyRef.current,
+      ]
+      applyState(rolled, nextHistory)
+      setRolling(false)
+      if (role === 'host') {
+        send({ type: 'state', dice: rolled, history: nextHistory } satisfies Message)
+      }
+    }, 500)
+  }
+
+  function roll() {
+    if (status === 'connecting') return
+    if (role === 'client') {
+      send({ type: 'roll' } satisfies Message)
+      return
+    }
+    performRoll()
+  }
+
+  function clearHistory() {
+    if (role === 'client') {
+      send({ type: 'clear' } satisfies Message)
+      return
+    }
+    applyState(diceRef.current, [])
+    if (role === 'host') {
+      send({ type: 'state', dice: diceRef.current, history: [] } satisfies Message)
+    }
+  }
+
+  function handleMessage(msg: unknown) {
+    const m = msg as Message
+    if (role === 'host') {
+      if (m.type === 'roll') performRoll()
+      else if (m.type === 'clear') clearHistory()
+    } else if (role === 'client') {
+      if (m.type === 'rolling') setRolling(true)
+      else if (m.type === 'state') {
+        setRolling(false)
+        applyState(m.dice, m.history)
+      }
+    }
+  }
+
+  function handleClientJoin() {
+    send({
+      type: 'state',
+      dice: diceRef.current,
+      history: historyRef.current,
+    } satisfies Message)
+  }
+
+  // Keep the hook's handler refs pointed at our latest closures (in the commit
+  // phase, never during render).
+  useEffect(() => {
+    messageHandlerRef.current = handleMessage
+    clientJoinHandlerRef.current = handleClientJoin
+  })
+
+  // Auto-join when opened via a shared ?room=CODE link.
+  const didInit = useRef(false)
+  useEffect(() => {
+    if (didInit.current) return
+    didInit.current = true
+    const code = new URLSearchParams(window.location.search).get('room')
+    if (code) joinRoom(code)
+  }, [joinRoom])
+
+  const shareLink = roomCode
+    ? `${window.location.origin}${window.location.pathname}?room=${roomCode}`
+    : ''
+
+  function copyLink() {
+    navigator.clipboard.writeText(shareLink).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    })
+  }
+
+  return (
+    <main className="flex min-h-screen flex-col items-center justify-center gap-10 bg-zinc-100 px-6 py-12">
+      <header className="text-center">
+        <h1 className="text-4xl font-bold tracking-tight text-zinc-900">
+          Qwixx Dice
+        </h1>
+        <p className="mt-2 text-zinc-500">
+          Roll all six dice: 2 white, red, yellow, green &amp; blue
+        </p>
+      </header>
+
+      <section className="w-full max-w-md">
+        <ConnectionPanel
+          role={role}
+          status={status}
+          roomCode={roomCode}
+          peerCount={peerCount}
+          error={error}
+          shareLink={shareLink}
+          copied={copied}
+          onCreate={createRoom}
+          onJoin={joinRoom}
+          onLeave={leave}
+          onCopy={copyLink}
+        />
+      </section>
+
+      <section className="grid grid-cols-3 gap-6 sm:grid-cols-6">
+        {dice.map((die) => (
+          <Dice key={die.id} die={die} rolling={rolling} />
+        ))}
+      </section>
+
+      <div className="flex flex-col items-center gap-4">
+        <button
+          type="button"
+          onClick={roll}
+          disabled={rolling || status === 'connecting'}
+          className="rounded-full bg-zinc-900 px-8 py-3 text-lg font-semibold text-white shadow-md transition hover:bg-zinc-700 active:scale-95 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {rolling ? 'Rolling…' : 'Roll dice'}
+        </button>
+      </div>
+
+      <section className="w-full max-w-md">
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-zinc-900">History</h2>
+          {history.length > 0 && (
+            <button
+              type="button"
+              onClick={clearHistory}
+              className="text-sm font-medium text-zinc-500 transition hover:text-zinc-900"
+            >
+              Clear
+            </button>
+          )}
+        </div>
+        {history.length === 0 ? (
+          <p className="rounded-lg border border-dashed border-zinc-300 px-4 py-6 text-center text-sm text-zinc-400">
+            No rolls yet — hit “Roll dice” to get started.
+          </p>
+        ) : (
+          <ul className="flex max-h-80 flex-col gap-2 overflow-y-auto pr-1">
+            {history.map((entry, index) => (
+              <HistoryEntry
+                key={entry.id}
+                entry={entry}
+                label={history.length - index}
+              />
+            ))}
+          </ul>
+        )}
+      </section>
+    </main>
+  )
+}
+
+export default App
