@@ -102,6 +102,18 @@ function HistoryEntry({ entry, label }: Readonly<{ entry: RollEntry; label: numb
   )
 }
 
+function LeaveButton({ onLeave }: Readonly<{ onLeave: () => void }>) {
+  return (
+    <button
+      type="button"
+      onClick={onLeave}
+      className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-600 transition hover:bg-zinc-100"
+    >
+      Leave
+    </button>
+  )
+}
+
 function ConnectionPanel({
   role,
   status,
@@ -173,13 +185,7 @@ function ConnectionPanel({
           >
             {copied ? 'Link copied!' : 'Copy invite link'}
           </button>
-          <button
-            type="button"
-            onClick={onLeave}
-            className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-600 transition hover:bg-zinc-100"
-          >
-            Leave
-          </button>
+          <LeaveButton onLeave={onLeave} />
         </div>
         <p className="mt-2 truncate text-xs text-zinc-400">{shareLink}</p>
       </div>
@@ -196,13 +202,7 @@ function ConnectionPanel({
             {roomCode}
           </span>
         </span>
-        <button
-          type="button"
-          onClick={onLeave}
-          className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-600 transition hover:bg-zinc-100"
-        >
-          Leave
-        </button>
+        <LeaveButton onLeave={onLeave} />
       </div>
     )
   }
@@ -264,22 +264,23 @@ function App() {
   const diceRef = useRef(dice)
   const historyRef = useRef(history)
 
-  // Indirection so the (long-lived) hook always calls our current handlers,
-  // which need `role`/`send` returned by the hook itself.
-  const messageHandlerRef = useRef<(msg: unknown) => void>(() => {})
-  const clientJoinHandlerRef = useRef<() => void>(() => {})
-
+  // `handleMessage`/`handleClientJoin` are hoisted and only ever invoked after
+  // render (on a peer event), so passing them straight through is safe — and
+  // usePeerSync already keeps its own latest-callback refs, so PeerJS always
+  // calls the freshest closure (with current `role`/`send`).
   const { role, status, roomCode, peerCount, error, createRoom, joinRoom, leave, send } =
-    usePeerSync({
-      onMessage: (msg) => messageHandlerRef.current(msg),
-      onClientJoin: () => clientJoinHandlerRef.current(),
-    })
+    usePeerSync({ onMessage: handleMessage, onClientJoin: handleClientJoin })
 
+  // Commit new dice/history locally. The host is authoritative, so every state
+  // change is broadcast to clients from this single point.
   function applyState(nextDice: Die[], nextHistory: RollEntry[]) {
     diceRef.current = nextDice
     historyRef.current = nextHistory
     setDice(nextDice)
     setHistory(nextHistory)
+    if (role === 'host') {
+      send({ type: 'state', dice: nextDice, history: nextHistory } satisfies Message)
+    }
   }
 
   // Generate a roll locally and (if hosting) broadcast it. Only ever runs on
@@ -295,9 +296,6 @@ function App() {
       ]
       applyState(rolled, nextHistory)
       setRolling(false)
-      if (role === 'host') {
-        send({ type: 'state', dice: rolled, history: nextHistory } satisfies Message)
-      }
     }, 500)
   }
 
@@ -316,9 +314,6 @@ function App() {
       return
     }
     applyState(diceRef.current, [])
-    if (role === 'host') {
-      send({ type: 'state', dice: diceRef.current, history: [] } satisfies Message)
-    }
   }
 
   function handleMessage(msg: unknown) {
@@ -342,13 +337,6 @@ function App() {
       history: historyRef.current,
     } satisfies Message)
   }
-
-  // Keep the hook's handler refs pointed at our latest closures (in the commit
-  // phase, never during render).
-  useEffect(() => {
-    messageHandlerRef.current = handleMessage
-    clientJoinHandlerRef.current = handleClientJoin
-  })
 
   // Auto-join when opened via a shared ?room=CODE link.
   const didInit = useRef(false)

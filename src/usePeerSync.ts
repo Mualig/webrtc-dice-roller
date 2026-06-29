@@ -129,8 +129,19 @@ export function usePeerSync({ onMessage, onClientJoin }: Options) {
       peerRef.current = peer
       let opened = false
 
+      // Watchdog: surface an error if the broker handshake never completes;
+      // cleared the moment the peer opens.
+      const connectTimeout = setTimeout(() => {
+        if (!opened && peerRef.current === peer) {
+          console.error(LOG, 'host: broker timed out')
+          setError('Could not reach the connection server. Check your network and try again.')
+          setStatus('error')
+        }
+      }, CONNECT_TIMEOUT_MS)
+
       peer.on('open', () => {
         opened = true
+        clearTimeout(connectTimeout)
         console.log(LOG, 'host: broker open, room code', code)
         setRoomCode(code)
         setStatus('connected')
@@ -164,14 +175,6 @@ export function usePeerSync({ onMessage, onClientJoin }: Options) {
           setStatus('error')
         }
       })
-
-      setTimeout(() => {
-        if (!opened && peerRef.current === peer) {
-          console.error(LOG, 'host: broker timed out')
-          setError('Could not reach the connection server. Check your network and try again.')
-          setStatus('error')
-        }
-      }, CONNECT_TIMEOUT_MS)
     }
 
     attempt(5)
@@ -196,6 +199,16 @@ export function usePeerSync({ onMessage, onClientJoin }: Options) {
       peerRef.current = peer
       let connected = false
 
+      // Watchdog: surface an error if the connection never completes; cleared
+      // the moment the data channel opens.
+      const connectTimeout = setTimeout(() => {
+        if (!connected && peerRef.current === peer) {
+          console.error(LOG, 'client: connection timed out')
+          setError(`Couldn't reach room "${code}". Check the code and your network.`)
+          setStatus('error')
+        }
+      }, CONNECT_TIMEOUT_MS)
+
       peer.on('open', (id) => {
         console.log(LOG, 'client: broker open as', id, '- dialing host')
         // Reliable + ordered delivery so full-state messages always arrive.
@@ -203,6 +216,7 @@ export function usePeerSync({ onMessage, onClientJoin }: Options) {
         connectionsRef.current = [conn]
         conn.on('open', () => {
           connected = true
+          clearTimeout(connectTimeout)
           console.log(LOG, 'client: connected to host')
           setRoomCode(code)
           setStatus('connected')
@@ -236,14 +250,6 @@ export function usePeerSync({ onMessage, onClientJoin }: Options) {
           setStatus('error')
         }
       })
-
-      setTimeout(() => {
-        if (!connected && peerRef.current === peer) {
-          console.error(LOG, 'client: connection timed out')
-          setError(`Couldn't reach room "${code}". Check the code and your network.`)
-          setStatus('error')
-        }
-      }, CONNECT_TIMEOUT_MS)
     },
     [teardown],
   )
