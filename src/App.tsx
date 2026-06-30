@@ -1,17 +1,24 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { usePeerSync } from './usePeerSync'
 import type { Die, Message, Player, RollEntry } from './types'
-import { DICE, rollValue } from './dice'
+import { DICE, PLAYER_COLOR_PALETTE, rollValue } from './dice'
 import { Dice } from './components/Dice'
 import { HistoryEntry } from './components/History'
-import { ConnectionPanel, NameField } from './components/ConnectionPanel'
+import { ConnectionPanel, IdentityFields } from './components/ConnectionPanel'
 
 const NAME_KEY = 'qwixx-player-name'
+const COLOR_KEY = 'qwixx-player-color'
 
-function upsertPlayer(list: Player[], id: string, name: string): Player[] {
+// Players are assigned one of the dice colors by default; the picker still lets
+// them choose any color afterwards.
+function randomColor() {
+  return PLAYER_COLOR_PALETTE[Math.floor(Math.random() * PLAYER_COLOR_PALETTE.length)]
+}
+
+function upsertPlayer(list: Player[], id: string, name: string, color: string): Player[] {
   return list.some((p) => p.id === id)
-    ? list.map((p) => (p.id === id ? { id, name } : p))
-    : [...list, { id, name }]
+    ? list.map((p) => (p.id === id ? { id, name, color } : p))
+    : [...list, { id, name, color }]
 }
 
 function App() {
@@ -22,6 +29,7 @@ function App() {
   const [rolling, setRolling] = useState(false)
   const [copied, setCopied] = useState(false)
   const [name, setName] = useState(() => localStorage.getItem(NAME_KEY) ?? '')
+  const [color, setColor] = useState(() => localStorage.getItem(COLOR_KEY) ?? randomColor())
   const [players, setPlayers] = useState<Player[]>([])
   const nextId = useRef(1)
 
@@ -43,6 +51,10 @@ function App() {
     })
 
   const myName = name.trim()
+  // Our identity for roll attribution: the peer id in a room, or a local 'me'
+  // sentinel when solo. Only ever used to resolve our own color, never matched
+  // as a roster key, so solo rolls that later ride into a room degrade cleanly.
+  const selfId = peerId ?? 'me'
 
   // Commit new dice/history locally. The host is authoritative, so every state
   // change is broadcast to clients from this single point.
@@ -70,14 +82,14 @@ function App() {
   )
 
   // Generate a roll locally and (if hosting) broadcast it. Only ever runs on
-  // the authoritative peer — solo or host. `by` attributes it to a player.
-  function performRoll(by: string) {
+  // the authoritative peer — solo or host. `roller` attributes it to a player.
+  function performRoll(roller: Player) {
     setRolling(true)
     if (role === 'host') send({ type: 'rolling' } satisfies Message)
     setTimeout(() => {
       const rolled = DICE.map((d) => ({ ...d, value: rollValue() }))
       const nextHistory: RollEntry[] = [
-        { id: nextId.current++, dice: rolled, by },
+        { id: nextId.current++, dice: rolled, roller },
         ...historyRef.current,
       ]
       applyState(rolled, nextHistory)
@@ -87,11 +99,12 @@ function App() {
 
   function roll() {
     if (status === 'connecting') return
+    const me: Player = { id: selfId, name: myName, color }
     if (role === 'client') {
-      send({ type: 'roll', by: myName } satisfies Message)
+      send({ type: 'roll', roller: me } satisfies Message)
       return
     }
-    performRoll(myName)
+    performRoll(me)
   }
 
   function clearHistory() {
@@ -105,13 +118,13 @@ function App() {
   function handleMessage(msg: unknown) {
     const m = msg as Message
     if (role === 'host') {
-      if (m.type === 'roll') performRoll(m.by)
+      if (m.type === 'roll') performRoll(m.roller)
       else if (m.type === 'clear') clearHistory()
       else if (m.type === 'hello') {
         // We key the roster on the client's self-reported id, which PeerJS
         // guarantees equals the transport's `conn.peer` — so handleClientLeave
         // (which only has `conn.peer`) can later remove this same entry.
-        updateRoster(upsertPlayer(playersRef.current, m.id, m.name))
+        updateRoster(upsertPlayer(playersRef.current, m.id, m.name, m.color))
       }
     } else if (role === 'client') {
       if (m.type === 'rolling') setRolling(true)
@@ -144,23 +157,26 @@ function App() {
     if (code) joinRoom(code)
   }, [joinRoom])
 
-  // Persist the player's name across sessions.
+  // Persist the player's name and color across sessions.
   useEffect(() => {
     localStorage.setItem(NAME_KEY, name)
   }, [name])
+  useEffect(() => {
+    localStorage.setItem(COLOR_KEY, color)
+  }, [color])
 
-  // Host: keep our own roster entry (keyed by our peer id) in sync with our name.
+  // Host: keep our own roster entry (keyed by our peer id) in sync with our name/color.
   useEffect(() => {
     if (role !== 'host' || status !== 'connected' || !peerId) return
-    updateRoster(upsertPlayer(playersRef.current, peerId, myName))
-  }, [role, status, peerId, myName, updateRoster])
+    updateRoster(upsertPlayer(playersRef.current, peerId, myName, color))
+  }, [role, status, peerId, myName, color, updateRoster])
 
-  // Client: announce our identity + name on connect and whenever it changes.
+  // Client: announce our identity + name + color on connect and whenever it changes.
   useEffect(() => {
     if (role === 'client' && status === 'connected' && peerId) {
-      send({ type: 'hello', id: peerId, name: myName } satisfies Message)
+      send({ type: 'hello', id: peerId, name: myName, color } satisfies Message)
     }
-  }, [role, status, peerId, myName, send])
+  }, [role, status, peerId, myName, color, send])
 
   const shareLink = roomCode
     ? `${window.location.origin}${window.location.pathname}?room=${roomCode}`
@@ -192,6 +208,13 @@ function App() {
     leave()
   }
 
+  // History borders follow each roller's *current* color: resolve it by id from
+  // the live roster (plus our own color, applied instantly before the roster
+  // round-trips), falling back to the snapshot taken at roll time once a player
+  // has left the room.
+  const colorById = new Map(players.map((p) => [p.id, p.color]))
+  colorById.set(selfId, color)
+
   return (
     <main className="flex min-h-screen flex-col items-center justify-center gap-10 bg-zinc-100 px-6 py-12">
       <header className="text-center">
@@ -204,14 +227,14 @@ function App() {
       </header>
 
       <section className="flex w-full max-w-md flex-col gap-4">
-        <NameField name={name} onChange={setName} />
+        <IdentityFields name={name} color={color} onNameChange={setName} onColorChange={setColor} />
         <ConnectionPanel
           role={role}
           status={status}
           roomCode={roomCode}
           peerCount={peerCount}
           players={players}
-          selfId={peerId}
+          selfId={selfId}
           error={error}
           shareLink={shareLink}
           copied={copied}
@@ -263,6 +286,7 @@ function App() {
                 key={entry.id}
                 entry={entry}
                 label={history.length - index}
+                color={colorById.get(entry.roller.id) || entry.roller.color}
               />
             ))}
           </ul>

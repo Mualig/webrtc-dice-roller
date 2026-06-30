@@ -20,6 +20,11 @@ export const COLOR_STYLES: Record<
   blue: { face: 'bg-blue-600', pip: 'bg-white', text: 'text-white' },
 }
 
+// The colored dice as sRGB hex — matching the Tailwind shades in COLOR_STYLES
+// (red-500, yellow-400, green-600, blue-600). Used as the default palette a
+// player's color is picked from; white is omitted (invisible as a border).
+export const PLAYER_COLOR_PALETTE = ['#fb2c36', '#fdc700', '#00a63e', '#155dfc']
+
 // Which of the 9 grid cells are filled for each die value (1-6).
 export const PIP_LAYOUT: Record<number, number[]> = {
   1: [4],

@@ -1,9 +1,16 @@
 import type { RollEntry } from '../types'
 import { COLOR_STYLES } from '../dice'
 
-export function HistoryEntry({ entry, label }: Readonly<{ entry: RollEntry; label: number }>) {
+export function HistoryEntry({
+  entry,
+  label,
+  color,
+}: Readonly<{ entry: RollEntry; label: number; color: string }>) {
   return (
-    <li className="flex items-center gap-3 rounded-lg bg-zinc-50 px-3 py-2">
+    <li
+      style={{ borderColor: color || 'transparent' }}
+      className="flex items-center gap-3 rounded-lg border-2 bg-zinc-50 px-3 py-2"
+    >
       <span className="w-8 shrink-0 text-sm font-medium text-zinc-400">
         #{label}
       </span>
@@ -20,9 +27,9 @@ export function HistoryEntry({ entry, label }: Readonly<{ entry: RollEntry; labe
           )
         })}
       </div>
-      {entry.by && (
+      {entry.roller.name && (
         <span className="shrink-0 text-sm font-medium text-zinc-500">
-          {entry.by}
+          {entry.roller.name}
         </span>
       )}
     </li>

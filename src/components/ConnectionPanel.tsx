@@ -6,23 +6,41 @@ function displayName(raw: string) {
   return raw.trim() || 'Anonymous'
 }
 
-export function NameField({
+export function IdentityFields({
   name,
-  onChange,
-}: Readonly<{ name: string; onChange: (value: string) => void }>) {
+  color,
+  onNameChange,
+  onColorChange,
+}: Readonly<{
+  name: string
+  color: string
+  onNameChange: (value: string) => void
+  onColorChange: (value: string) => void
+}>) {
   return (
-    <label className="block">
+    <div className="block">
       <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-400">
-        Your name
+        Your name &amp; color
       </span>
-      <input
-        value={name}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder="Enter your name"
-        maxLength={20}
-        className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-zinc-900"
-      />
-    </label>
+      <div className="flex gap-2">
+        <input
+          aria-label="Your name"
+          value={name}
+          onChange={(e) => onNameChange(e.target.value)}
+          placeholder="Enter your name"
+          maxLength={20}
+          className="flex-1 rounded-lg border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-zinc-900"
+        />
+        <input
+          type="color"
+          aria-label="Your color"
+          title="Pick your color"
+          value={color}
+          onChange={(e) => onColorChange(e.target.value)}
+          className="h-10 w-12 shrink-0 cursor-pointer rounded-lg border border-zinc-300 bg-white p-1"
+        />
+      </div>
+    </div>
   )
 }
 
@@ -33,7 +51,8 @@ function Roster({ players, selfId }: Readonly<{ players: Player[]; selfId: strin
       {players.map((player) => (
         <li
           key={player.id}
-          className="flex items-center gap-1.5 rounded-full bg-zinc-100 px-3 py-1 text-sm text-zinc-700"
+          style={{ borderColor: player.color || 'transparent' }}
+          className="flex items-center gap-1.5 rounded-full border-2 bg-zinc-100 px-3 py-1 text-sm text-zinc-700"
         >
           <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
           {displayName(player.name)}
