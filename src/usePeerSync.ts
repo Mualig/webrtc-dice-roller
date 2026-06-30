@@ -10,6 +10,9 @@ type Options = {
   onMessage: (msg: unknown) => void
   // Host-only: a new client just finished connecting (good time to push state).
   onClientJoin: () => void
+  // Host-only: a client disconnected; receives that peer's id so presence can
+  // be reconciled.
+  onClientLeave: (peerId: string) => void
 }
 
 // Prefix keeps our room ids from colliding with other apps on the public broker.
@@ -52,11 +55,12 @@ function randomCode() {
   return code
 }
 
-export function usePeerSync({ onMessage, onClientJoin }: Options) {
+export function usePeerSync({ onMessage, onClientJoin, onClientLeave }: Options) {
   const [role, setRole] = useState<PeerRole>('solo')
   const [status, setStatus] = useState<PeerStatus>('idle')
   const [roomCode, setRoomCode] = useState<string | null>(null)
   const [peerCount, setPeerCount] = useState(0)
+  const [peerId, setPeerId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const peerRef = useRef<Peer | null>(null)
@@ -67,9 +71,11 @@ export function usePeerSync({ onMessage, onClientJoin }: Options) {
   // (registered once) always call the current closure instead of a stale one.
   const onMessageRef = useRef(onMessage)
   const onClientJoinRef = useRef(onClientJoin)
+  const onClientLeaveRef = useRef(onClientLeave)
   useEffect(() => {
     onMessageRef.current = onMessage
     onClientJoinRef.current = onClientJoin
+    onClientLeaveRef.current = onClientLeave
   })
 
   const teardown = useCallback(() => {
@@ -86,6 +92,7 @@ export function usePeerSync({ onMessage, onClientJoin }: Options) {
     setRole('solo')
     setStatus('idle')
     setRoomCode(null)
+    setPeerId(null)
     setError(null)
   }, [teardown])
 
@@ -105,10 +112,12 @@ export function usePeerSync({ onMessage, onClientJoin }: Options) {
       conn.on('data', (data) => onMessageRef.current(data))
       conn.on('close', () => {
         console.log(LOG, 'host: client left', conn.peer)
+        onClientLeaveRef.current(conn.peer)
         dropConnection(conn)
       })
       conn.on('error', (err) => {
         console.warn(LOG, 'host: connection error', err)
+        onClientLeaveRef.current(conn.peer)
         dropConnection(conn)
       })
     },
@@ -144,6 +153,7 @@ export function usePeerSync({ onMessage, onClientJoin }: Options) {
         clearTimeout(connectTimeout)
         console.log(LOG, 'host: broker open, room code', code)
         setRoomCode(code)
+        setPeerId(peer.id)
         setStatus('connected')
       })
 
@@ -211,6 +221,7 @@ export function usePeerSync({ onMessage, onClientJoin }: Options) {
 
       peer.on('open', (id) => {
         console.log(LOG, 'client: broker open as', id, '- dialing host')
+        setPeerId(id)
         // Reliable + ordered delivery so full-state messages always arrive.
         const conn = peer.connect(ROOM_PREFIX + code, { reliable: true })
         connectionsRef.current = [conn]
@@ -271,6 +282,7 @@ export function usePeerSync({ onMessage, onClientJoin }: Options) {
     status,
     roomCode,
     peerCount,
+    peerId,
     error,
     createRoom,
     joinRoom,

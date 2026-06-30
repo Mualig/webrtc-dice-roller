@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { usePeerSync } from './usePeerSync'
 
 type DiceColor = 'white' | 'red' | 'yellow' | 'green' | 'blue'
@@ -12,14 +12,19 @@ type Die = {
 type RollEntry = {
   id: number
   dice: Die[]
+  by: string // display name of whoever rolled ('' if unset)
 }
+
+type Player = { id: string; name: string }
 
 // Messages exchanged between peers over the data channel.
 type Message =
-  | { type: 'roll' } // client -> host: please roll
+  | { type: 'roll'; by: string } // client -> host: roll on my behalf, attributed to `by`
   | { type: 'clear' } // client -> host: please clear history
   | { type: 'rolling' } // host -> clients: a roll started (animate)
-  | { type: 'state'; dice: Die[]; history: RollEntry[] } // host -> clients: authoritative state
+  | { type: 'state'; dice: Die[]; history: RollEntry[] } // host -> clients: authoritative dice/history
+  | { type: 'hello'; id: string; name: string } // client -> host: my identity + name
+  | { type: 'roster'; players: Player[] } // host -> clients: who's in the room
 
 const DICE: { id: string; color: DiceColor }[] = [
   { id: 'white-1', color: 'white' },
@@ -53,6 +58,19 @@ const PIP_LAYOUT: Record<number, number[]> = {
 
 function rollValue() {
   return Math.floor(Math.random() * 6) + 1
+}
+
+// Roster + identity helpers.
+const NAME_KEY = 'qwixx-player-name'
+
+function displayName(raw: string) {
+  return raw.trim() || 'Anonymous'
+}
+
+function upsertPlayer(list: Player[], id: string, name: string): Player[] {
+  return list.some((p) => p.id === id)
+    ? list.map((p) => (p.id === id ? { id, name } : p))
+    : [...list, { id, name }]
 }
 
 function Dice({ die, rolling }: Readonly<{ die: Die; rolling: boolean }>) {
@@ -98,7 +116,50 @@ function HistoryEntry({ entry, label }: Readonly<{ entry: RollEntry; label: numb
           )
         })}
       </div>
+      {entry.by && (
+        <span className="shrink-0 text-sm font-medium text-zinc-500">
+          {entry.by}
+        </span>
+      )}
     </li>
+  )
+}
+
+function NameField({
+  name,
+  onChange,
+}: Readonly<{ name: string; onChange: (value: string) => void }>) {
+  return (
+    <label className="block">
+      <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-400">
+        Your name
+      </span>
+      <input
+        value={name}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="Enter your name"
+        maxLength={20}
+        className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-zinc-900"
+      />
+    </label>
+  )
+}
+
+function Roster({ players, selfId }: Readonly<{ players: Player[]; selfId: string | null }>) {
+  if (players.length === 0) return null
+  return (
+    <ul className="mt-3 flex flex-wrap gap-2">
+      {players.map((player) => (
+        <li
+          key={player.id}
+          className="flex items-center gap-1.5 rounded-full bg-zinc-100 px-3 py-1 text-sm text-zinc-700"
+        >
+          <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
+          {displayName(player.name)}
+          {player.id === selfId && <span className="text-zinc-400">(you)</span>}
+        </li>
+      ))}
+    </ul>
   )
 }
 
@@ -119,6 +180,8 @@ function ConnectionPanel({
   status,
   roomCode,
   peerCount,
+  players,
+  selfId,
   error,
   shareLink,
   copied,
@@ -131,6 +194,8 @@ function ConnectionPanel({
   status: ReturnType<typeof usePeerSync>['status']
   roomCode: string | null
   peerCount: number
+  players: Player[]
+  selfId: string | null
   error: string | null
   shareLink: string
   copied: boolean
@@ -188,21 +253,25 @@ function ConnectionPanel({
           <LeaveButton onLeave={onLeave} />
         </div>
         <p className="mt-2 truncate text-xs text-zinc-400">{shareLink}</p>
+        <Roster players={players} selfId={selfId} />
       </div>
     )
   }
 
   if (status === 'connected' && role === 'client') {
     return (
-      <div className="flex items-center justify-between rounded-xl border border-zinc-200 bg-white p-4">
-        <span className="flex items-center gap-2 text-sm text-zinc-600">
-          <span className="h-2 w-2 rounded-full bg-green-500" />
-          Connected to room{' '}
-          <span className="font-mono font-bold tracking-widest text-zinc-900">
-            {roomCode}
+      <div className="rounded-xl border border-zinc-200 bg-white p-4">
+        <div className="flex items-center justify-between">
+          <span className="flex items-center gap-2 text-sm text-zinc-600">
+            <span className="h-2 w-2 rounded-full bg-green-500" />
+            Connected to room{' '}
+            <span className="font-mono font-bold tracking-widest text-zinc-900">
+              {roomCode}
+            </span>
           </span>
-        </span>
-        <LeaveButton onLeave={onLeave} />
+          <LeaveButton onLeave={onLeave} />
+        </div>
+        <Roster players={players} selfId={selfId} />
       </div>
     )
   }
@@ -257,19 +326,28 @@ function App() {
   const [history, setHistory] = useState<RollEntry[]>([])
   const [rolling, setRolling] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [name, setName] = useState(() => localStorage.getItem(NAME_KEY) ?? '')
+  const [players, setPlayers] = useState<Player[]>([])
   const nextId = useRef(1)
 
-  // Refs mirror the latest dice/history so PeerJS event handlers and the
+  // Refs mirror the latest dice/history/roster so PeerJS event handlers and the
   // delayed roll callback read current values instead of stale closures.
   const diceRef = useRef(dice)
   const historyRef = useRef(history)
+  const playersRef = useRef(players)
 
-  // `handleMessage`/`handleClientJoin` are hoisted and only ever invoked after
-  // render (on a peer event), so passing them straight through is safe — and
-  // usePeerSync already keeps its own latest-callback refs, so PeerJS always
-  // calls the freshest closure (with current `role`/`send`).
-  const { role, status, roomCode, peerCount, error, createRoom, joinRoom, leave, send } =
-    usePeerSync({ onMessage: handleMessage, onClientJoin: handleClientJoin })
+  // `handleMessage`/`handleClientJoin`/`handleClientLeave` are hoisted and only
+  // ever invoked after render (on a peer event), so passing them straight through
+  // is safe — and usePeerSync already keeps its own latest-callback refs, so
+  // PeerJS always calls the freshest closure (with current `role`/`send`).
+  const { role, status, roomCode, peerCount, peerId, error, createRoom, joinRoom, leave, send } =
+    usePeerSync({
+      onMessage: handleMessage,
+      onClientJoin: handleClientJoin,
+      onClientLeave: handleClientLeave,
+    })
+
+  const myName = name.trim()
 
   // Commit new dice/history locally. The host is authoritative, so every state
   // change is broadcast to clients from this single point.
@@ -283,15 +361,28 @@ function App() {
     }
   }
 
+  // Commit the roster locally; the host (authoritative for presence) broadcasts
+  // it. Memoized so the host self-entry effect can depend on it without churn.
+  const updateRoster = useCallback(
+    (nextPlayers: Player[]) => {
+      playersRef.current = nextPlayers
+      setPlayers(nextPlayers)
+      if (role === 'host') {
+        send({ type: 'roster', players: nextPlayers } satisfies Message)
+      }
+    },
+    [role, send],
+  )
+
   // Generate a roll locally and (if hosting) broadcast it. Only ever runs on
-  // the authoritative peer — solo or host.
-  function performRoll() {
+  // the authoritative peer — solo or host. `by` attributes it to a player.
+  function performRoll(by: string) {
     setRolling(true)
     if (role === 'host') send({ type: 'rolling' } satisfies Message)
     setTimeout(() => {
       const rolled = DICE.map((d) => ({ ...d, value: rollValue() }))
       const nextHistory: RollEntry[] = [
-        { id: nextId.current++, dice: rolled },
+        { id: nextId.current++, dice: rolled, by },
         ...historyRef.current,
       ]
       applyState(rolled, nextHistory)
@@ -302,10 +393,10 @@ function App() {
   function roll() {
     if (status === 'connecting') return
     if (role === 'client') {
-      send({ type: 'roll' } satisfies Message)
+      send({ type: 'roll', by: myName } satisfies Message)
       return
     }
-    performRoll()
+    performRoll(myName)
   }
 
   function clearHistory() {
@@ -319,23 +410,34 @@ function App() {
   function handleMessage(msg: unknown) {
     const m = msg as Message
     if (role === 'host') {
-      if (m.type === 'roll') performRoll()
+      if (m.type === 'roll') performRoll(m.by)
       else if (m.type === 'clear') clearHistory()
+      else if (m.type === 'hello') {
+        // We key the roster on the client's self-reported id, which PeerJS
+        // guarantees equals the transport's `conn.peer` — so handleClientLeave
+        // (which only has `conn.peer`) can later remove this same entry.
+        updateRoster(upsertPlayer(playersRef.current, m.id, m.name))
+      }
     } else if (role === 'client') {
       if (m.type === 'rolling') setRolling(true)
       else if (m.type === 'state') {
         setRolling(false)
         applyState(m.dice, m.history)
+      } else if (m.type === 'roster') {
+        updateRoster(m.players)
       }
     }
   }
 
+  // Host: bring a newly-connected client up to date with current state + roster.
   function handleClientJoin() {
-    send({
-      type: 'state',
-      dice: diceRef.current,
-      history: historyRef.current,
-    } satisfies Message)
+    send({ type: 'state', dice: diceRef.current, history: historyRef.current } satisfies Message)
+    send({ type: 'roster', players: playersRef.current } satisfies Message)
+  }
+
+  // Host: drop a disconnected client from the roster.
+  function handleClientLeave(id: string) {
+    updateRoster(playersRef.current.filter((player) => player.id !== id))
   }
 
   // Auto-join when opened via a shared ?room=CODE link.
@@ -347,6 +449,24 @@ function App() {
     if (code) joinRoom(code)
   }, [joinRoom])
 
+  // Persist the player's name across sessions.
+  useEffect(() => {
+    localStorage.setItem(NAME_KEY, name)
+  }, [name])
+
+  // Host: keep our own roster entry (keyed by our peer id) in sync with our name.
+  useEffect(() => {
+    if (role !== 'host' || status !== 'connected' || !peerId) return
+    updateRoster(upsertPlayer(playersRef.current, peerId, myName))
+  }, [role, status, peerId, myName, updateRoster])
+
+  // Client: announce our identity + name on connect and whenever it changes.
+  useEffect(() => {
+    if (role === 'client' && status === 'connected' && peerId) {
+      send({ type: 'hello', id: peerId, name: myName } satisfies Message)
+    }
+  }, [role, status, peerId, myName, send])
+
   const shareLink = roomCode
     ? `${window.location.origin}${window.location.pathname}?room=${roomCode}`
     : ''
@@ -356,6 +476,25 @@ function App() {
       setCopied(true)
       setTimeout(() => setCopied(false), 1500)
     })
+  }
+
+  // Reset presence when (re)starting or leaving a session, so stale players from
+  // a previous room never linger into the next one.
+  function resetRoster() {
+    playersRef.current = []
+    setPlayers([])
+  }
+  function startHosting() {
+    resetRoster()
+    createRoom()
+  }
+  function startJoining(code: string) {
+    resetRoster()
+    joinRoom(code)
+  }
+  function leaveRoom() {
+    resetRoster()
+    leave()
   }
 
   return (
@@ -369,18 +508,21 @@ function App() {
         </p>
       </header>
 
-      <section className="w-full max-w-md">
+      <section className="flex w-full max-w-md flex-col gap-4">
+        <NameField name={name} onChange={setName} />
         <ConnectionPanel
           role={role}
           status={status}
           roomCode={roomCode}
           peerCount={peerCount}
+          players={players}
+          selfId={peerId}
           error={error}
           shareLink={shareLink}
           copied={copied}
-          onCreate={createRoom}
-          onJoin={joinRoom}
-          onLeave={leave}
+          onCreate={startHosting}
+          onJoin={startJoining}
+          onLeave={leaveRoom}
           onCopy={copyLink}
         />
       </section>
