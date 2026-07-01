@@ -1,10 +1,7 @@
 import { useState } from 'react'
 import type { Player } from '../types'
 import type { PeerRole, PeerStatus } from '../usePeerSync'
-
-function displayName(raw: string) {
-  return raw.trim() || 'Anonymous'
-}
+import { displayName } from '../format'
 
 function Roster({ players, selfId }: Readonly<{ players: Player[]; selfId: string | null }>) {
   if (players.length === 0) return null

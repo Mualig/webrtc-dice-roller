@@ -56,6 +56,9 @@ function App() {
   // sentinel when solo. Only ever used to resolve our own color, never matched
   // as a roster key, so solo rolls that later ride into a room degrade cleanly.
   const selfId = peerId ?? 'me'
+  // Our own roster entry: attributes our rolls and resolves our live name/color
+  // in the history instantly, before the roster round-trips.
+  const me: Player = { id: selfId, name: myName, color }
 
   // Commit new dice/history locally. The host is authoritative, so every state
   // change is broadcast to clients from this single point.
@@ -100,7 +103,6 @@ function App() {
 
   function roll() {
     if (status === 'connecting') return
-    const me: Player = { id: selfId, name: myName, color }
     if (role === 'client') {
       send({ type: 'roll', roller: me } satisfies Message)
       return
@@ -209,12 +211,12 @@ function App() {
     leave()
   }
 
-  // History borders follow each roller's *current* color: resolve it by id from
-  // the live roster (plus our own color, applied instantly before the roster
-  // round-trips), falling back to the snapshot taken at roll time once a player
-  // has left the room.
-  const colorById = new Map(players.map((p) => [p.id, p.color]))
-  colorById.set(selfId, color)
+  // History rows follow each roller's *current* name + color: resolve the roller
+  // by id from the live roster (plus our own entry, applied instantly before the
+  // roster round-trips), falling back to the snapshot taken at roll time once a
+  // player has left the room.
+  const playerById = new Map(players.map((p) => [p.id, p]))
+  playerById.set(selfId, me)
 
   return (
     <main className="flex min-h-screen flex-col items-center justify-center gap-10 bg-zinc-100 px-6 py-12">
@@ -289,7 +291,7 @@ function App() {
                 key={entry.id}
                 entry={entry}
                 label={history.length - index}
-                color={colorById.get(entry.roller.id) || entry.roller.color}
+                roller={playerById.get(entry.roller.id) ?? entry.roller}
               />
             ))}
           </ul>

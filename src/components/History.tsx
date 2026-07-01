@@ -1,14 +1,17 @@
-import type { RollEntry } from '../types'
+import type { Player, RollEntry } from '../types'
 import { COLOR_STYLES } from '../dice'
 
+// `roller` is the roll's attributed player, resolved by the parent to their
+// *current* roster identity (name + color), falling back to the roll-time
+// snapshot once they've left the room.
 export function HistoryEntry({
   entry,
   label,
-  color,
-}: Readonly<{ entry: RollEntry; label: number; color: string }>) {
+  roller,
+}: Readonly<{ entry: RollEntry; label: number; roller: Player }>) {
   return (
     <li
-      style={{ borderColor: color || 'transparent' }}
+      style={{ borderColor: roller.color || 'transparent' }}
       className="flex items-center gap-3 rounded-lg border-2 bg-zinc-50 px-3 py-2"
     >
       <span className="w-8 shrink-0 text-sm font-medium text-zinc-400">
@@ -27,9 +30,9 @@ export function HistoryEntry({
           )
         })}
       </div>
-      {entry.roller.name && (
+      {roller.name && (
         <span className="shrink-0 text-sm font-medium text-zinc-500">
-          {entry.roller.name}
+          {roller.name}
         </span>
       )}
     </li>

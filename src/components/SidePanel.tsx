@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
+import { displayName } from '../format'
 
-export function IdentityFields({
+function IdentityFields({
   name,
   color,
   onNameChange,
@@ -79,6 +80,7 @@ export function SidePanel({
   children?: ReactNode
 }>) {
   const [open, setOpen] = useState(false)
+  const close = () => setOpen(false)
 
   // Close on Escape while the drawer is open.
   useEffect(() => {
@@ -109,12 +111,12 @@ export function SidePanel({
           className="h-3 w-3 rounded-full border border-zinc-300"
           style={{ backgroundColor: color }}
         />
-        <span className="max-w-[8rem] truncate">{name.trim() || 'Player'}</span>
+        <span className="max-w-[8rem] truncate">{displayName(name, 'Player')}</span>
       </button>
 
       {/* Backdrop — fades in and captures clicks to close while open. */}
       <div
-        onClick={() => setOpen(false)}
+        onClick={close}
         aria-hidden="true"
         className={`fixed inset-0 z-40 bg-black/30 transition-opacity duration-300 ${
           open ? 'opacity-100' : 'pointer-events-none opacity-0'
@@ -134,7 +136,7 @@ export function SidePanel({
           <h2 className="text-lg font-semibold text-zinc-900">Menu</h2>
           <button
             type="button"
-            onClick={() => setOpen(false)}
+            onClick={close}
             aria-label="Close menu"
             className="rounded-lg p-1 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-900"
           >
