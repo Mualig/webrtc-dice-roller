@@ -218,15 +218,13 @@ function App() {
 
   return (
     <main className="flex min-h-screen flex-col items-center justify-center gap-10 bg-zinc-100 px-6 py-12">
-      <SidePanel name={name} color={color} onNameChange={setName} onColorChange={setColor} />
-
-      <header className="text-center">
-        <h1 className="text-4xl font-bold tracking-tight text-zinc-900">
-          WebRTC Dice Roller
-        </h1>
-      </header>
-
-      <section className="flex w-full max-w-md flex-col gap-4">
+      <SidePanel
+        name={name}
+        color={color}
+        connected={status === 'connected'}
+        onNameChange={setName}
+        onColorChange={setColor}
+      >
         <ConnectionPanel
           role={role}
           status={status}
@@ -242,7 +240,13 @@ function App() {
           onLeave={leaveRoom}
           onCopy={copyLink}
         />
-      </section>
+      </SidePanel>
+
+      <header className="text-center">
+        <h1 className="text-4xl font-bold tracking-tight text-zinc-900">
+          WebRTC Dice Roller
+        </h1>
+      </header>
 
       <section className="grid grid-cols-3 gap-6 sm:grid-cols-6">
         {dice.map((die) => (

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 
 export function IdentityFields({
   name,
@@ -56,19 +56,27 @@ function GearIcon() {
   )
 }
 
-// A left-hand slide-out drawer for editing the player's identity (name + color).
-// The toggle button lives in the top-left corner; opening it slides the panel in
-// over a dimming backdrop, and Escape or a backdrop click closes it.
+// A left-hand slide-out drawer holding the player's identity (name + color) and
+// the multiplayer "Play together" panel, so the main view stays focused on the
+// dice and history. The toggle button lives in the top-left corner; opening it
+// slides the panel in over a dimming backdrop, and Escape or a backdrop click
+// closes it. `connected` drives a status dot on the toggle so players can tell
+// they're in a room without opening the drawer. `children` render below the
+// identity fields (the connection panel).
 export function SidePanel({
   name,
   color,
+  connected,
   onNameChange,
   onColorChange,
+  children,
 }: Readonly<{
   name: string
   color: string
+  connected: boolean
   onNameChange: (value: string) => void
   onColorChange: (value: string) => void
+  children?: ReactNode
 }>) {
   const [open, setOpen] = useState(false)
 
@@ -87,11 +95,16 @@ export function SidePanel({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        aria-label="Open player settings"
+        aria-label="Open menu"
         aria-expanded={open}
         className="fixed left-4 top-4 z-30 flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-700 shadow-sm transition hover:bg-zinc-50"
       >
-        <GearIcon />
+        <span className="relative">
+          <GearIcon />
+          {connected && (
+            <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-green-500 ring-2 ring-white" />
+          )}
+        </span>
         <span
           className="h-3 w-3 rounded-full border border-zinc-300"
           style={{ backgroundColor: color }}
@@ -112,17 +125,17 @@ export function SidePanel({
       <aside
         role="dialog"
         aria-modal="true"
-        aria-label="Player settings"
+        aria-label="Menu"
         className={`fixed inset-y-0 left-0 z-50 flex w-80 max-w-[85vw] transform flex-col bg-white shadow-xl transition-transform duration-300 ${
           open ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
         <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-4">
-          <h2 className="text-lg font-semibold text-zinc-900">Player settings</h2>
+          <h2 className="text-lg font-semibold text-zinc-900">Menu</h2>
           <button
             type="button"
             onClick={() => setOpen(false)}
-            aria-label="Close player settings"
+            aria-label="Close menu"
             className="rounded-lg p-1 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-900"
           >
             <svg
@@ -139,13 +152,14 @@ export function SidePanel({
             </svg>
           </button>
         </div>
-        <div className="p-5">
+        <div className="flex flex-1 flex-col gap-5 overflow-y-auto p-5">
           <IdentityFields
             name={name}
             color={color}
             onNameChange={onNameChange}
             onColorChange={onColorChange}
           />
+          {children}
         </div>
       </aside>
     </>

@@ -145,7 +145,9 @@ export function ConnectionPanel({
       <p className="mt-0.5 text-sm text-zinc-500">
         Share live rolls with friends over a direct peer-to-peer connection.
       </p>
-      <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center">
+      {/* Always stacked: this panel lives in a narrow (~320px) drawer, so a
+          side-by-side layout would be cramped on any viewport. */}
+      <div className="mt-3 flex flex-col gap-3">
         <button
           type="button"
           onClick={onCreate}
