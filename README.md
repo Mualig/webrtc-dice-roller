@@ -1,75 +1,82 @@
-# React + TypeScript + Vite
+# WebRTC Dice Roller
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A real-time, peer-to-peer dice roller for the board game Qwixx. Roll the six dice (two white plus red, yellow, green &
+blue) on your own, or start a room and share live rolls with friends over a direct WebRTC connection — no server, no
+accounts.
 
-Currently, two official plugins are available:
+## Features
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- **Roll the six Qwixx dice** with a quick roll animation.
+- **Play together in a room.** Create a room to get a short 4-character code and an invitation link, or join an existing
+  room by code (or by opening a shared `?room=CODE` link).
+- **Direct peer-to-peer sync.** Rolls, history, and presence are synced over WebRTC via [PeerJS](https://peerjs.com/);
+  the room host is authoritative and broadcasts state to everyone.
+- **Side menu for your identity.** A lateral drawer lets you set your **name** and pick a **color**; a status dot shows
+  when you're connected. Name and color are remembered across sessions (`localStorage`).
+- **Shared, attributed history.** Every roll is recorded with who rolled it. Each entry's border and label follow that
+  player's *current* name and color, falling back to a snapshot once they leave the room.
+- **Live roster.** See who's currently in the room, each shown in their chosen color.
 
-## React Compiler
+## Getting started
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+Requires **Node.js 24+**.
 
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
+```bash
+npm install     # install dependencies
+npm run dev     # start the dev server (http://localhost:5173)
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+Other scripts:
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+```bash
+npm run build   # type-check and build for production (outputs to dist/)
+npm run preview # preview the production build locally
+npm run lint    # run ESLint
+```
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+## Multiplayer & networking
 
+Peers connect directly to each other; only PeerJS's public broker is used to exchange connection info during setup.
+
+- **STUN** servers (Google's public STUN) handle NAT traversal and are enough for most connections between two different
+  devices.
+- **TURN** is only needed when no direct path exists (restrictive networks, or two browsers on the same machine).
+  There's no reliable free public TURN, so it's opt-in via environment variables:
+
+| Variable               | Purpose                             |
+|------------------------|-------------------------------------|
+| `VITE_TURN_URL`        | TURN server URL (enables the relay) |
+| `VITE_TURN_USERNAME`   | TURN username (optional)            |
+| `VITE_TURN_CREDENTIAL` | TURN credential (optional)          |
+
+Set these in a `.env` file (or your host's env) before building.
+
+## Deployment
+
+Pushing to `main` builds and deploys to **GitHub Pages** via the workflow in [
+`.github/workflows/deploy.yml`](.github/workflows/deploy.yml). The workflow sets `VITE_BASE` to `/<repo>/` so assets
+resolve under the project's Pages path. A local `npm run build` falls back to relative (`./`) asset paths, so the
+`dist/` output works from any subpath.
+
+## Tech stack
+
+- [React 19](https://react.dev/) + [TypeScript](https://www.typescriptlang.org/)
+- [Vite](https://vite.dev/) for dev/build
+- [Tailwind CSS v4](https://tailwindcss.com/)
+- [PeerJS](https://peerjs.com/) (WebRTC data channels)
+
+## Project structure
+
+```
+src/
+  App.tsx                    # top-level app: state, roll logic, host/client wiring
+  usePeerSync.ts             # PeerJS room lifecycle (create/join/leave, messaging)
+  types.ts                   # shared types (Die, Player, RollEntry, Message)
+  dice.ts                    # dice definitions, colors, pip layouts, roll helper
+  format.ts                  # small presentation helpers (e.g. displayName)
+  components/
+    Dice.tsx                 # a single die face
+    History.tsx              # a roll history entry
+    ConnectionPanel.tsx      # room lobby / connected state + roster
+    SidePanel.tsx            # lateral menu: identity fields + connection panel
 ```
