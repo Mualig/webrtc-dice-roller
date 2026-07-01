@@ -4,7 +4,8 @@ import type { Die, Message, Player, RollEntry } from './types'
 import { DICE, PLAYER_COLOR_PALETTE, rollValue } from './dice'
 import { Dice } from './components/Dice'
 import { HistoryEntry } from './components/History'
-import { ConnectionPanel, IdentityFields } from './components/ConnectionPanel'
+import { ConnectionPanel } from './components/ConnectionPanel'
+import { SidePanel } from './components/SidePanel'
 
 const NAME_KEY = 'qwixx-player-name'
 const COLOR_KEY = 'qwixx-player-color'
@@ -217,17 +218,15 @@ function App() {
 
   return (
     <main className="flex min-h-screen flex-col items-center justify-center gap-10 bg-zinc-100 px-6 py-12">
+      <SidePanel name={name} color={color} onNameChange={setName} onColorChange={setColor} />
+
       <header className="text-center">
         <h1 className="text-4xl font-bold tracking-tight text-zinc-900">
-          Qwixx Dice
+          WebRTC Dice Roller
         </h1>
-        <p className="mt-2 text-zinc-500">
-          Roll all six dice: 2 white, red, yellow, green &amp; blue
-        </p>
       </header>
 
       <section className="flex w-full max-w-md flex-col gap-4">
-        <IdentityFields name={name} color={color} onNameChange={setName} onColorChange={setColor} />
         <ConnectionPanel
           role={role}
           status={status}

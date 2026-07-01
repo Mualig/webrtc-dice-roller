@@ -6,44 +6,6 @@ function displayName(raw: string) {
   return raw.trim() || 'Anonymous'
 }
 
-export function IdentityFields({
-  name,
-  color,
-  onNameChange,
-  onColorChange,
-}: Readonly<{
-  name: string
-  color: string
-  onNameChange: (value: string) => void
-  onColorChange: (value: string) => void
-}>) {
-  return (
-    <div className="block">
-      <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-400">
-        Your name &amp; color
-      </span>
-      <div className="flex gap-2">
-        <input
-          aria-label="Your name"
-          value={name}
-          onChange={(e) => onNameChange(e.target.value)}
-          placeholder="Enter your name"
-          maxLength={20}
-          className="flex-1 rounded-lg border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-zinc-900"
-        />
-        <input
-          type="color"
-          aria-label="Your color"
-          title="Pick your color"
-          value={color}
-          onChange={(e) => onColorChange(e.target.value)}
-          className="h-10 w-12 shrink-0 cursor-pointer rounded-lg border border-zinc-300 bg-white p-1"
-        />
-      </div>
-    </div>
-  )
-}
-
 function Roster({ players, selfId }: Readonly<{ players: Player[]; selfId: string | null }>) {
   if (players.length === 0) return null
   return (
