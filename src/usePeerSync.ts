@@ -16,7 +16,7 @@ type Options = {
 }
 
 // Prefix keeps our room ids from colliding with other apps on the public broker.
-const ROOM_PREFIX = 'qwixx-room-'
+const ROOM_PREFIX = 'webrtc-dice-roller-room-'
 // Unambiguous charset (no 0/O, 1/I) so codes are easy to read out loud.
 const CODE_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'
 // How long to wait for the broker / peer handshake before giving up.

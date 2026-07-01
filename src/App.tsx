@@ -7,8 +7,8 @@ import { HistoryEntry } from './components/History'
 import { ConnectionPanel } from './components/ConnectionPanel'
 import { SidePanel } from './components/SidePanel'
 
-const NAME_KEY = 'qwixx-player-name'
-const COLOR_KEY = 'qwixx-player-color'
+const NAME_KEY = 'webrtc-dice-roller-player-name'
+const COLOR_KEY = 'webrtc-dice-roller-player-color'
 
 // Players are assigned one of the dice colors by default; the picker still lets
 // them choose any color afterwards.
